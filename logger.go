@@ -26,9 +26,15 @@ type FileLogger struct {
 	FileLog        *log.Logger
 }
 
-func NewLogger(devMode bool, subdir string) *FileLogger {
+// NewLogger creates a new FileLogger instance.
+//
+// Parameters:
+//   - devMode: a boolean indicating whether the logger should output more detailed messages suitable for debugging.
+//   - appDir: a string representing the subdirectory where log files should be stored.
+//     This should be a relative path, and will result in user_home_dir/[appDir]/logs.
+func NewLogger(devMode bool, appDir string) *FileLogger {
 	if devMode {
-		log.Println("INFO running in development mode")
+		log.Println("INFO logger running in development mode")
 	}
 
 	currentUser, err := user.Current()
@@ -38,7 +44,7 @@ func NewLogger(devMode bool, subdir string) *FileLogger {
 	}
 
 	homeDir := currentUser.HomeDir
-	logDir := filepath.Join(homeDir, subdir, "logs")
+	logDir := filepath.Join(homeDir, appDir, "logs")
 	if err = os.MkdirAll(logDir, 0755); err != nil {
 		message := fmt.Sprintf("FATAL failed creating log directory: %s", err.Error())
 		log.Fatal(message)
