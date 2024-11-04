@@ -30,8 +30,7 @@ type FileLogger struct {
 //
 // Parameters:
 //   - devMode: a boolean indicating whether the logger should output more detailed messages suitable for debugging.
-//   - appDir: a string representing the subdirectory where log files should be stored.
-//     This should be a relative path, and will result in user_home_dir/[appDir]/logs.
+//   - appDir: a string representing the subdirectory where log files should be stored. This should be a relative path, and will result in `user_home_dir/[appDir]/logs`.
 func NewLogger(devMode bool, appDir string) *FileLogger {
 	if devMode {
 		log.Println("INFO logger running in development mode")
