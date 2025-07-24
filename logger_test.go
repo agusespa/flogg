@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -169,11 +170,9 @@ func TestRefreshLogFile(t *testing.T) {
 		t.Errorf("failed to resize file: %s", err)
 	}
 
-	logger := &FileLogger{
-		DevMode:        false,
-		LogDir:         testLogDir,
-		CurrentLogFile: initFile2,
-		FileLog:        log.New(initFile2, "", log.LstdFlags),
+	logger, err := NewLogger(false, testLogDir)
+	if err != nil {
+		t.Errorf("failed to create logger: %s", err)
 	}
 
 	test2 := &LoggerTest{
@@ -234,4 +233,29 @@ func TestRefreshLogFile(t *testing.T) {
 			// TODO compare loggers
 		})
 	}
+}
+
+func TestConcurrency(t *testing.T) {
+	tempDir := os.TempDir()
+	testLogDir := filepath.Join(tempDir, "test_logs_concurrency")
+	err := os.MkdirAll(testLogDir, 0755)
+	if err != nil {
+		t.Errorf("failed to create log directory: %s", err)
+	}
+	defer os.RemoveAll(testLogDir)
+
+	logger, err := NewLogger(false, testLogDir)
+	if err != nil {
+		t.Errorf("failed to create logger: %s", err)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			logger.LogInfo(fmt.Sprintf("test message %d", i))
+		}(i)
+	}
+	wg.Wait()
 }

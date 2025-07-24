@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -24,6 +25,7 @@ type FileLogger struct {
 	LogDir         string
 	CurrentLogFile *os.File
 	FileLog        *log.Logger
+	mu             sync.Mutex
 }
 
 // NewLogger creates a new FileLogger instance.
@@ -31,34 +33,31 @@ type FileLogger struct {
 // Parameters:
 //   - devMode: a boolean indicating whether the logger should output more detailed messages suitable for debugging.
 //   - appDir: a string representing the subdirectory where log files should be stored. This should be a relative path, and will result in `user_home_dir/[appDir]/logs`.
-func NewLogger(devMode bool, appDir string) *FileLogger {
+func NewLogger(devMode bool, appDir string) (*FileLogger, error) {
 	if devMode {
 		log.Println("INFO logger running in development mode")
 	}
 
 	currentUser, err := user.Current()
 	if err != nil {
-		message := fmt.Sprintf("FATAL failed getting the current os user: %s", err.Error())
-		log.Fatal(message)
+		return nil, fmt.Errorf("failed getting the current os user: %w", err)
 	}
 
 	homeDir := currentUser.HomeDir
 	logDir := filepath.Join(homeDir, appDir, "logs")
 	if err = os.MkdirAll(logDir, 0755); err != nil {
-		message := fmt.Sprintf("FATAL failed creating log directory: %s", err.Error())
-		log.Fatal(message)
+		return nil, fmt.Errorf("failed creating log directory: %w", err)
 	}
 
 	var fileLogger *log.Logger
 	logFile, err := getUserLogFile(logDir)
 	if err != nil {
-		message := fmt.Sprintf("FATAL failed getting log file: %s", err.Error())
-		log.Fatal(message)
+		return nil, fmt.Errorf("failed getting log file: %w", err)
 	} else {
 		fileLogger = log.New(logFile, "", log.LstdFlags)
 	}
 
-	return &FileLogger{DevMode: devMode, LogDir: logDir, CurrentLogFile: logFile, FileLog: fileLogger}
+	return &FileLogger{DevMode: devMode, LogDir: logDir, CurrentLogFile: logFile, FileLog: fileLogger}, nil
 }
 
 func (l *FileLogger) LogFatal(err error) {
@@ -95,10 +94,13 @@ func (l *FileLogger) LogDebug(message string) {
 }
 
 func (l *FileLogger) logToFile(message string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
 	err := l.refreshLogFile()
 	if err != nil {
-		message := fmt.Sprintf("FATAL failed refreshing log file: %s", err.Error())
-		log.Fatal(message)
+		log.Printf("FATAL failed refreshing log file: %s", err.Error())
+		return
 	}
 
 	l.FileLog.Println(message)
