@@ -168,7 +168,7 @@ func TestRefreshLogFile(t *testing.T) {
 		t.Errorf("failed to resize file: %s", err)
 	}
 
-	logger, err := NewLogger(false, testLogDir, 0)
+	logger, err := NewLogger(false, testLogDir, 0, LogLevelDebug)
 	if err != nil {
 		t.Errorf("failed to create logger: %s", err)
 	}
@@ -242,7 +242,7 @@ func TestConcurrency(t *testing.T) {
 	}
 	defer os.RemoveAll(testLogDir)
 
-	logger, err := NewLogger(false, testLogDir, 0)
+	logger, err := NewLogger(false, testLogDir, 0, LogLevelDebug)
 	if err != nil {
 		t.Errorf("failed to create logger: %s", err)
 	}
@@ -319,5 +319,91 @@ func TestCleanupOldLogs(t *testing.T) {
 
 	if _, err := os.Stat(recentFile); os.IsNotExist(err) {
 		t.Errorf("expected recent log file to still exist after no-op cleanup")
+	}
+}
+
+func TestLogLevelFiltering(t *testing.T) {
+	tempDir := os.TempDir()
+	testLogDir := filepath.Join(tempDir, "test_logs_level")
+	err := os.MkdirAll(testLogDir, 0755)
+	if err != nil {
+		t.Errorf("failed to create log directory: %s", err)
+	}
+	defer os.RemoveAll(testLogDir)
+
+	tests := []struct {
+		name      string
+		minLevel  LogLevel
+		logFunc   func(*FileLogger)
+		shouldLog bool
+	}{
+		{
+			name:     "debug logged when min level is debug",
+			minLevel: LogLevelDebug,
+			logFunc: func(l *FileLogger) {
+				l.LogDebug("debug message")
+			},
+			shouldLog: true,
+		},
+		{
+			name:     "debug not logged when min level is info",
+			minLevel: LogLevelInfo,
+			logFunc: func(l *FileLogger) {
+				l.LogDebug("debug message")
+			},
+			shouldLog: false,
+		},
+		{
+			name:     "info not logged when min level is warn",
+			minLevel: LogLevelWarn,
+			logFunc: func(l *FileLogger) {
+				l.LogInfo("info message")
+			},
+			shouldLog: false,
+		},
+		{
+			name:     "error logged when min level is warn",
+			minLevel: LogLevelWarn,
+			logFunc: func(l *FileLogger) {
+				l.LogError(fmt.Errorf("error message"))
+			},
+			shouldLog: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err = removeTestFiles(testLogDir)
+			if err != nil {
+				t.Errorf("failed to remove test files: %s", err)
+			}
+
+			logger, err := NewLogger(false, testLogDir, 0, tt.minLevel)
+			if err != nil {
+				t.Errorf("failed to create logger: %s", err)
+			}
+			defer logger.Close()
+
+			// Get file size before logging
+			info, err := logger.CurrentLogFile.Stat()
+			if err != nil {
+				t.Errorf("failed to stat log file: %s", err)
+			}
+			sizeBefore := info.Size()
+
+			tt.logFunc(logger)
+
+			// Get file size after logging
+			info, err = logger.CurrentLogFile.Stat()
+			if err != nil {
+				t.Errorf("failed to stat log file: %s", err)
+			}
+			sizeAfter := info.Size()
+
+			logWasWritten := sizeAfter > sizeBefore
+			if logWasWritten != tt.shouldLog {
+				t.Errorf("expected shouldLog=%v, but log was written=%v", tt.shouldLog, logWasWritten)
+			}
+		})
 	}
 }

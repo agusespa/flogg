@@ -12,6 +12,16 @@ import (
 	"time"
 )
 
+type LogLevel int
+
+const (
+	LogLevelDebug LogLevel = iota
+	LogLevelInfo
+	LogLevelWarn
+	LogLevelError
+	LogLevelFatal
+)
+
 type Logger interface {
 	LogFatal(err error)
 	LogError(err error)
@@ -26,6 +36,7 @@ type FileLogger struct {
 	CurrentLogFile *os.File
 	FileLog        *log.Logger
 	MaxLogAgeDays  int
+	MinLevel       LogLevel
 	stopCleanup    chan struct{}
 	mu             sync.Mutex
 }
@@ -36,7 +47,8 @@ type FileLogger struct {
 //   - devMode: a boolean indicating whether the logger should output more detailed messages suitable for debugging.
 //   - appDir: a string representing the subdirectory where log files should be stored. This should be a relative path, and will result in `user_home_dir/[appDir]/logs`.
 //   - maxLogAgeDays: maximum age of log files in days before cleanup (0 = no cleanup).
-func NewLogger(devMode bool, appDir string, maxLogAgeDays int) (*FileLogger, error) {
+//   - minLevel: minimum log level to write (logs below this level are ignored).
+func NewLogger(devMode bool, appDir string, maxLogAgeDays int, minLevel LogLevel) (*FileLogger, error) {
 	if devMode {
 		log.Println("INFO logger running in development mode")
 	}
@@ -66,6 +78,7 @@ func NewLogger(devMode bool, appDir string, maxLogAgeDays int) (*FileLogger, err
 		CurrentLogFile: logFile,
 		FileLog:        fileLogger,
 		MaxLogAgeDays:  maxLogAgeDays,
+		MinLevel:       minLevel,
 		stopCleanup:    make(chan struct{}),
 	}
 
@@ -81,30 +94,45 @@ func NewLogger(devMode bool, appDir string, maxLogAgeDays int) (*FileLogger, err
 }
 
 func (l *FileLogger) LogFatal(err error) {
+	if l.MinLevel > LogLevelFatal {
+		return
+	}
 	message := fmt.Sprintf("FATAL %s", err.Error())
 	l.logToFile(message)
 	log.Fatal(message)
 }
 
 func (l *FileLogger) LogError(err error) {
+	if l.MinLevel > LogLevelError {
+		return
+	}
 	message := fmt.Sprintf("ERROR %s", err.Error())
 	log.Println(message)
 	l.logToFile(message)
 }
 
 func (l *FileLogger) LogWarn(message string) {
+	if l.MinLevel > LogLevelWarn {
+		return
+	}
 	message = fmt.Sprintf("WARNING %s", message)
 	log.Println(message)
 	l.logToFile(message)
 }
 
 func (l *FileLogger) LogInfo(message string) {
+	if l.MinLevel > LogLevelInfo {
+		return
+	}
 	message = fmt.Sprintf("INFO %s", message)
 	log.Println(message)
 	l.logToFile(message)
 }
 
 func (l *FileLogger) LogDebug(message string) {
+	if l.MinLevel > LogLevelDebug {
+		return
+	}
 	message = fmt.Sprintf("DEBUG %s", message)
 	l.logToFile(message)
 
