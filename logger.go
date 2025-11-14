@@ -256,11 +256,20 @@ func getUserLogFile(logDir string) (*os.File, error) {
 
 	if len(filteredFiles) > 0 {
 		logFileName = filteredFiles[0]
-		for i := 1; i < len(filteredFiles); i++ {
-			latestNum := strings.Split(logFileName, "_")[1]
-			currentNum := strings.Split(filteredFiles[i], "_")[1]
-			if currentNum > latestNum {
-				logFileName = filteredFiles[i]
+		maxNum := 0
+
+		for _, filename := range filteredFiles {
+			parts := strings.Split(filename, "_")
+			if len(parts) != 2 {
+				continue
+			}
+			num, err := strconv.Atoi(parts[1])
+			if err != nil {
+				continue
+			}
+			if num > maxNum {
+				maxNum = num
+				logFileName = filename
 			}
 		}
 	} else {
