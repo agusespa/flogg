@@ -22,23 +22,24 @@ import "github.com/agusespa/flogg"
 
 ### Creating a new logger instance
 
-To create a new logger, use the `NewLogger` function. It takes four arguments:
+To create a new logger, use the `NewLogger` function. It takes five arguments:
 
 - `devMode`: A boolean that, when `true`, enables more verbose logging for debugging purposes.
 - `appDir`: A string representing the directory where log files will be stored. This is relative to the user's home directory. For example, an `appDir` of `"MyApp"` will store logs in `~_user_/MyApp/logs`.
 - `maxLogAgeDays`: Maximum age of log files in days before automatic cleanup (0 = no cleanup).
 - `minLevel`: Minimum log level to write. Logs below this level are ignored.
+- `format`: Log format - `LogFormatText` for human-readable logs or `LogFormatJSON` for structured JSON logs.
 
 ```go
-// Production: only log warnings and above
-logger, err := flog.NewLogger(false, "MyApp", 30, flog.LogLevelWarn)
+// Production: JSON format, only warnings and above
+logger, err := flog.NewLogger(false, "MyApp", 30, flog.LogLevelWarn, flog.LogFormatJSON)
 if err != nil {
     log.Fatalf("Failed to create logger: %v", err)
 }
 defer logger.Close()
 
-// Development: log everything including debug messages
-logger, err := flog.NewLogger(true, "MyApp", 30, flog.LogLevelDebug)
+// Development: text format, log everything
+logger, err := flog.NewLogger(true, "MyApp", 30, flog.LogLevelDebug, flog.LogFormatText)
 if err != nil {
     log.Fatalf("Failed to create logger: %v", err)
 }
@@ -65,21 +66,40 @@ You can control which logs are written by setting a minimum log level. Only logs
 - `LogLevelError`: Log errors only (error, fatal)
 - `LogLevelFatal`: Log only fatal errors
 
+### Log Formats
+
+`flogg` supports two output formats:
+
+**Text Format** (`LogFormatText`) - Human-readable format:
+```
+2025/11/14 08:04:38 INFO user logged in user_id=123 ip=192.168.1.1 action=login
+```
+
+**JSON Format** (`LogFormatJSON`) - Structured JSON for parsing and analysis:
+```json
+{"action":"login","ip":"192.168.1.1","level":"INFO","message":"user logged in","time":"2025-11-14T08:04:38+01:00","user_id":123}
+```
+
 ```go
-// Log a fatal error
-logger.LogFatal(errors.New("this is a fatal error"))
-
-// Log an error
-logger.LogError(errors.New("this is an error"))
-
-// Log a warning
-logger.LogWarn("This is a warning message.")
-
-// Log an info message
+// Simple logging
 logger.LogInfo("This is an info message.")
-
-// Log a debug message
+logger.LogError(errors.New("this is an error"))
+logger.LogWarn("This is a warning message.")
 logger.LogDebug("This is a debug message.")
+logger.LogFatal(errors.New("this is a fatal error")) // exits the application
+
+// Structured logging with key-value pairs
+logger.LogInfoWith("user logged in", map[string]interface{}{
+    "user_id": 123,
+    "ip": "192.168.1.1",
+    "action": "login",
+})
+
+logger.LogErrorWith(errors.New("database connection failed"), map[string]interface{}{
+    "host": "localhost",
+    "port": 5432,
+    "retry_count": 3,
+})
 ```
 
 ## License

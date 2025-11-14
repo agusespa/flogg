@@ -1,10 +1,12 @@
 package logger
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -168,7 +170,7 @@ func TestRefreshLogFile(t *testing.T) {
 		t.Errorf("failed to resize file: %s", err)
 	}
 
-	logger, err := NewLogger(false, testLogDir, 0, LogLevelDebug)
+	logger, err := NewLogger(false, testLogDir, 0, LogLevelDebug, LogFormatText)
 	if err != nil {
 		t.Errorf("failed to create logger: %s", err)
 	}
@@ -242,7 +244,7 @@ func TestConcurrency(t *testing.T) {
 	}
 	defer os.RemoveAll(testLogDir)
 
-	logger, err := NewLogger(false, testLogDir, 0, LogLevelDebug)
+	logger, err := NewLogger(false, testLogDir, 0, LogLevelDebug, LogFormatText)
 	if err != nil {
 		t.Errorf("failed to create logger: %s", err)
 	}
@@ -378,7 +380,7 @@ func TestLogLevelFiltering(t *testing.T) {
 				t.Errorf("failed to remove test files: %s", err)
 			}
 
-			logger, err := NewLogger(false, testLogDir, 0, tt.minLevel)
+			logger, err := NewLogger(false, testLogDir, 0, tt.minLevel, LogFormatText)
 			if err != nil {
 				t.Errorf("failed to create logger: %s", err)
 			}
@@ -406,4 +408,132 @@ func TestLogLevelFiltering(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestStructuredLogging(t *testing.T) {
+	tempDir := os.TempDir()
+	testLogDir := filepath.Join(tempDir, "test_logs_structured")
+	err := os.MkdirAll(testLogDir, 0755)
+	if err != nil {
+		t.Errorf("failed to create log directory: %s", err)
+	}
+	defer os.RemoveAll(testLogDir)
+
+	t.Run("text format with fields", func(t *testing.T) {
+		err = removeTestFiles(testLogDir)
+		if err != nil {
+			t.Errorf("failed to remove test files: %s", err)
+		}
+
+		logger, err := NewLogger(false, testLogDir, 0, LogLevelDebug, LogFormatText)
+		if err != nil {
+			t.Errorf("failed to create logger: %s", err)
+		}
+		defer logger.Close()
+
+		fields := map[string]interface{}{
+			"user_id": 123,
+			"action":  "login",
+			"ip":      "192.168.1.1",
+		}
+		logger.LogInfoWith("user logged in", fields)
+
+		content, err := os.ReadFile(logger.CurrentLogFile.Name())
+		if err != nil {
+			t.Errorf("failed to read log file: %s", err)
+		}
+
+		logContent := string(content)
+		if !strings.Contains(logContent, "user logged in") {
+			t.Errorf("expected log to contain message")
+		}
+		if !strings.Contains(logContent, "user_id=123") {
+			t.Errorf("expected log to contain user_id field")
+		}
+		if !strings.Contains(logContent, "action=login") {
+			t.Errorf("expected log to contain action field")
+		}
+		if !strings.Contains(logContent, "ip=192.168.1.1") {
+			t.Errorf("expected log to contain ip field")
+		}
+	})
+
+	t.Run("json format with fields", func(t *testing.T) {
+		err = removeTestFiles(testLogDir)
+		if err != nil {
+			t.Errorf("failed to remove test files: %s", err)
+		}
+
+		logger, err := NewLogger(false, testLogDir, 0, LogLevelDebug, LogFormatJSON)
+		if err != nil {
+			t.Errorf("failed to create logger: %s", err)
+		}
+		defer logger.Close()
+
+		fields := map[string]interface{}{
+			"user_id": 456,
+			"action":  "logout",
+		}
+		logger.LogInfoWith("user logged out", fields)
+
+		content, err := os.ReadFile(logger.CurrentLogFile.Name())
+		if err != nil {
+			t.Errorf("failed to read log file: %s", err)
+		}
+
+		// Parse the last line as JSON
+		lines := strings.Split(strings.TrimSpace(string(content)), "\n")
+		lastLine := lines[len(lines)-1]
+		
+		// Extract JSON from log line (skip timestamp prefix)
+		jsonStart := strings.Index(lastLine, "{")
+		if jsonStart == -1 {
+			t.Errorf("expected JSON in log line")
+			return
+		}
+		jsonStr := lastLine[jsonStart:]
+
+		var entry map[string]interface{}
+		if err := json.Unmarshal([]byte(jsonStr), &entry); err != nil {
+			t.Errorf("failed to parse JSON log: %s", err)
+		}
+
+		if entry["level"] != "INFO" {
+			t.Errorf("expected level=INFO, got %v", entry["level"])
+		}
+		if entry["message"] != "user logged out" {
+			t.Errorf("expected message='user logged out', got %v", entry["message"])
+		}
+		if entry["user_id"] != float64(456) {
+			t.Errorf("expected user_id=456, got %v", entry["user_id"])
+		}
+		if entry["action"] != "logout" {
+			t.Errorf("expected action=logout, got %v", entry["action"])
+		}
+	})
+
+	t.Run("text format without fields", func(t *testing.T) {
+		err = removeTestFiles(testLogDir)
+		if err != nil {
+			t.Errorf("failed to remove test files: %s", err)
+		}
+
+		logger, err := NewLogger(false, testLogDir, 0, LogLevelDebug, LogFormatText)
+		if err != nil {
+			t.Errorf("failed to create logger: %s", err)
+		}
+		defer logger.Close()
+
+		logger.LogInfo("simple message")
+
+		content, err := os.ReadFile(logger.CurrentLogFile.Name())
+		if err != nil {
+			t.Errorf("failed to read log file: %s", err)
+		}
+
+		logContent := string(content)
+		if !strings.Contains(logContent, "INFO simple message") {
+			t.Errorf("expected log to contain 'INFO simple message'")
+		}
+	})
 }

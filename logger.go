@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -28,7 +29,19 @@ type Logger interface {
 	LogWarn(message string)
 	LogInfo(message string)
 	LogDebug(message string)
+	LogFatalWith(err error, fields map[string]interface{})
+	LogErrorWith(err error, fields map[string]interface{})
+	LogWarnWith(message string, fields map[string]interface{})
+	LogInfoWith(message string, fields map[string]interface{})
+	LogDebugWith(message string, fields map[string]interface{})
 }
+
+type LogFormat int
+
+const (
+	LogFormatText LogFormat = iota
+	LogFormatJSON
+)
 
 type FileLogger struct {
 	DevMode        bool
@@ -37,6 +50,7 @@ type FileLogger struct {
 	FileLog        *log.Logger
 	MaxLogAgeDays  int
 	MinLevel       LogLevel
+	Format         LogFormat
 	stopCleanup    chan struct{}
 	mu             sync.Mutex
 }
@@ -48,7 +62,8 @@ type FileLogger struct {
 //   - appDir: a string representing the subdirectory where log files should be stored. This should be a relative path, and will result in `user_home_dir/[appDir]/logs`.
 //   - maxLogAgeDays: maximum age of log files in days before cleanup (0 = no cleanup).
 //   - minLevel: minimum log level to write (logs below this level are ignored).
-func NewLogger(devMode bool, appDir string, maxLogAgeDays int, minLevel LogLevel) (*FileLogger, error) {
+//   - format: log format (LogFormatText or LogFormatJSON).
+func NewLogger(devMode bool, appDir string, maxLogAgeDays int, minLevel LogLevel, format LogFormat) (*FileLogger, error) {
 	if devMode {
 		log.Println("INFO logger running in development mode")
 	}
@@ -79,6 +94,7 @@ func NewLogger(devMode bool, appDir string, maxLogAgeDays int, minLevel LogLevel
 		FileLog:        fileLogger,
 		MaxLogAgeDays:  maxLogAgeDays,
 		MinLevel:       minLevel,
+		Format:         format,
 		stopCleanup:    make(chan struct{}),
 	}
 
@@ -94,51 +110,100 @@ func NewLogger(devMode bool, appDir string, maxLogAgeDays int, minLevel LogLevel
 }
 
 func (l *FileLogger) LogFatal(err error) {
+	l.LogFatalWith(err, nil)
+}
+
+func (l *FileLogger) LogFatalWith(err error, fields map[string]interface{}) {
 	if l.MinLevel > LogLevelFatal {
 		return
 	}
-	message := fmt.Sprintf("FATAL %s", err.Error())
+	message := l.formatMessage("FATAL", err.Error(), fields)
 	l.logToFile(message)
 	log.Fatal(message)
 }
 
 func (l *FileLogger) LogError(err error) {
+	l.LogErrorWith(err, nil)
+}
+
+func (l *FileLogger) LogErrorWith(err error, fields map[string]interface{}) {
 	if l.MinLevel > LogLevelError {
 		return
 	}
-	message := fmt.Sprintf("ERROR %s", err.Error())
+	message := l.formatMessage("ERROR", err.Error(), fields)
 	log.Println(message)
 	l.logToFile(message)
 }
 
 func (l *FileLogger) LogWarn(message string) {
+	l.LogWarnWith(message, nil)
+}
+
+func (l *FileLogger) LogWarnWith(message string, fields map[string]interface{}) {
 	if l.MinLevel > LogLevelWarn {
 		return
 	}
-	message = fmt.Sprintf("WARNING %s", message)
-	log.Println(message)
-	l.logToFile(message)
+	formatted := l.formatMessage("WARNING", message, fields)
+	log.Println(formatted)
+	l.logToFile(formatted)
 }
 
 func (l *FileLogger) LogInfo(message string) {
+	l.LogInfoWith(message, nil)
+}
+
+func (l *FileLogger) LogInfoWith(message string, fields map[string]interface{}) {
 	if l.MinLevel > LogLevelInfo {
 		return
 	}
-	message = fmt.Sprintf("INFO %s", message)
-	log.Println(message)
-	l.logToFile(message)
+	formatted := l.formatMessage("INFO", message, fields)
+	log.Println(formatted)
+	l.logToFile(formatted)
 }
 
 func (l *FileLogger) LogDebug(message string) {
+	l.LogDebugWith(message, nil)
+}
+
+func (l *FileLogger) LogDebugWith(message string, fields map[string]interface{}) {
 	if l.MinLevel > LogLevelDebug {
 		return
 	}
-	message = fmt.Sprintf("DEBUG %s", message)
-	l.logToFile(message)
+	formatted := l.formatMessage("DEBUG", message, fields)
+	l.logToFile(formatted)
 
 	if l.DevMode {
-		log.Println(message)
+		log.Println(formatted)
 	}
+}
+
+func (l *FileLogger) formatMessage(level, message string, fields map[string]interface{}) string {
+	if l.Format == LogFormatJSON {
+		entry := map[string]interface{}{
+			"level":   level,
+			"message": message,
+			"time":    time.Now().Format(time.RFC3339),
+		}
+		for k, v := range fields {
+			entry[k] = v
+		}
+		jsonBytes, err := json.Marshal(entry)
+		if err != nil {
+			return fmt.Sprintf("%s %s fields_error=%v", level, message, err)
+		}
+		return string(jsonBytes)
+	}
+
+	// Text format
+	if fields == nil || len(fields) == 0 {
+		return fmt.Sprintf("%s %s", level, message)
+	}
+
+	var fieldStrs []string
+	for k, v := range fields {
+		fieldStrs = append(fieldStrs, fmt.Sprintf("%s=%v", k, v))
+	}
+	return fmt.Sprintf("%s %s %s", level, message, strings.Join(fieldStrs, " "))
 }
 
 func (l *FileLogger) logToFile(message string) {
