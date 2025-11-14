@@ -159,8 +159,16 @@ func (l *FileLogger) refreshLogFile() error {
 	if err != nil {
 		return err
 	}
+
+	// Close the old file before switching to the new one
+	oldFile := l.CurrentLogFile
 	l.CurrentLogFile = logFile
 	l.FileLog = log.New(logFile, "", log.LstdFlags)
+
+	if err := oldFile.Close(); err != nil {
+		log.Printf("WARNING failed to close old log file: %s", err.Error())
+	}
+
 	return nil
 }
 
