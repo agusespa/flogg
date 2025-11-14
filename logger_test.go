@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-// createTestFiles creates test log files in the given directory.
 func createTestFiles(logDir string, filenames []string) error {
 	for _, filename := range filenames {
 		path := filepath.Join(logDir, filename)
@@ -23,7 +22,6 @@ func createTestFiles(logDir string, filenames []string) error {
 	return nil
 }
 
-// removeTestFiles removes all files in the given directory.
 func removeTestFiles(logDir string) error {
 	files, err := os.ReadDir(logDir)
 	if err != nil {
@@ -170,7 +168,7 @@ func TestRefreshLogFile(t *testing.T) {
 		t.Errorf("failed to resize file: %s", err)
 	}
 
-	logger, err := NewLogger(false, testLogDir)
+	logger, err := NewLogger(false, testLogDir, 0)
 	if err != nil {
 		t.Errorf("failed to create logger: %s", err)
 	}
@@ -244,13 +242,13 @@ func TestConcurrency(t *testing.T) {
 	}
 	defer os.RemoveAll(testLogDir)
 
-	logger, err := NewLogger(false, testLogDir)
+	logger, err := NewLogger(false, testLogDir, 0)
 	if err != nil {
 		t.Errorf("failed to create logger: %s", err)
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -258,4 +256,68 @@ func TestConcurrency(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+}
+
+func TestCleanupOldLogs(t *testing.T) {
+	tempDir := os.TempDir()
+	testLogDir := filepath.Join(tempDir, "test_logs_cleanup")
+	err := os.MkdirAll(testLogDir, 0755)
+	if err != nil {
+		t.Errorf("failed to create log directory: %s", err)
+	}
+	defer os.RemoveAll(testLogDir)
+
+	now := time.Now()
+	oldFile := filepath.Join(testLogDir, "2025-10-01_1.log")
+	recentFile := filepath.Join(testLogDir, "2025-11-10_1.log")
+	nonLogFile := filepath.Join(testLogDir, "data.txt")
+
+	for _, path := range []string{oldFile, recentFile, nonLogFile} {
+		f, err := os.Create(path)
+		if err != nil {
+			t.Errorf("failed to create test file: %s", err)
+		}
+		f.Close()
+	}
+
+	oldTime := now.AddDate(0, 0, -10)
+	if err := os.Chtimes(oldFile, oldTime, oldTime); err != nil {
+		t.Errorf("failed to set file time: %s", err)
+	}
+
+	logger := &FileLogger{
+		DevMode:       false,
+		LogDir:        testLogDir,
+		MaxLogAgeDays: 7,
+	}
+
+	if err := logger.cleanupOldLogs(); err != nil {
+		t.Errorf("cleanup failed: %s", err)
+	}
+
+	if _, err := os.Stat(oldFile); !os.IsNotExist(err) {
+		t.Errorf("expected old log file to be deleted")
+	}
+
+	if _, err := os.Stat(recentFile); os.IsNotExist(err) {
+		t.Errorf("expected recent log file to still exist")
+	}
+
+	if _, err := os.Stat(nonLogFile); os.IsNotExist(err) {
+		t.Errorf("expected non-log file to still exist")
+	}
+
+	logger2 := &FileLogger{
+		DevMode:       false,
+		LogDir:        testLogDir,
+		MaxLogAgeDays: 0,
+	}
+
+	if err := logger2.cleanupOldLogs(); err != nil {
+		t.Errorf("cleanup failed: %s", err)
+	}
+
+	if _, err := os.Stat(recentFile); os.IsNotExist(err) {
+		t.Errorf("expected recent log file to still exist after no-op cleanup")
+	}
 }

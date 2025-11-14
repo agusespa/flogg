@@ -25,6 +25,8 @@ type FileLogger struct {
 	LogDir         string
 	CurrentLogFile *os.File
 	FileLog        *log.Logger
+	MaxLogAgeDays  int
+	stopCleanup    chan struct{}
 	mu             sync.Mutex
 }
 
@@ -33,7 +35,8 @@ type FileLogger struct {
 // Parameters:
 //   - devMode: a boolean indicating whether the logger should output more detailed messages suitable for debugging.
 //   - appDir: a string representing the subdirectory where log files should be stored. This should be a relative path, and will result in `user_home_dir/[appDir]/logs`.
-func NewLogger(devMode bool, appDir string) (*FileLogger, error) {
+//   - maxLogAgeDays: maximum age of log files in days before cleanup (0 = no cleanup).
+func NewLogger(devMode bool, appDir string, maxLogAgeDays int) (*FileLogger, error) {
 	if devMode {
 		log.Println("INFO logger running in development mode")
 	}
@@ -57,7 +60,24 @@ func NewLogger(devMode bool, appDir string) (*FileLogger, error) {
 		fileLogger = log.New(logFile, "", log.LstdFlags)
 	}
 
-	return &FileLogger{DevMode: devMode, LogDir: logDir, CurrentLogFile: logFile, FileLog: fileLogger}, nil
+	logger := &FileLogger{
+		DevMode:        devMode,
+		LogDir:         logDir,
+		CurrentLogFile: logFile,
+		FileLog:        fileLogger,
+		MaxLogAgeDays:  maxLogAgeDays,
+		stopCleanup:    make(chan struct{}),
+	}
+
+	if err := logger.cleanupOldLogs(); err != nil {
+		log.Printf("WARNING failed to cleanup old logs: %s", err.Error())
+	}
+
+	if maxLogAgeDays > 0 {
+		go logger.periodicCleanup()
+	}
+
+	return logger, nil
 }
 
 func (l *FileLogger) LogFatal(err error) {
@@ -141,6 +161,67 @@ func (l *FileLogger) refreshLogFile() error {
 	}
 	l.CurrentLogFile = logFile
 	l.FileLog = log.New(logFile, "", log.LstdFlags)
+	return nil
+}
+
+// Close stops the periodic cleanup goroutine and closes the current log file.
+// Should be called when the logger is no longer needed.
+func (l *FileLogger) Close() error {
+	if l.stopCleanup != nil {
+		close(l.stopCleanup)
+	}
+	if l.CurrentLogFile != nil {
+		return l.CurrentLogFile.Close()
+	}
+	return nil
+}
+
+func (l *FileLogger) periodicCleanup() {
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			if err := l.cleanupOldLogs(); err != nil {
+				log.Printf("WARNING periodic cleanup failed: %s", err.Error())
+			}
+		case <-l.stopCleanup:
+			return
+		}
+	}
+}
+
+func (l *FileLogger) cleanupOldLogs() error {
+	if l.MaxLogAgeDays <= 0 {
+		return nil
+	}
+
+	files, err := os.ReadDir(l.LogDir)
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+	cutoffTime := now.AddDate(0, 0, -l.MaxLogAgeDays)
+
+	for _, f := range files {
+		if !strings.HasSuffix(f.Name(), ".log") {
+			continue
+		}
+
+		info, err := f.Info()
+		if err != nil {
+			continue
+		}
+
+		if info.ModTime().Before(cutoffTime) {
+			if err := os.Remove(filepath.Join(l.LogDir, f.Name())); err != nil {
+				log.Printf("WARNING failed to remove old log file %s: %s", f.Name(), err.Error())
+			}
+		}
+	}
+
 	return nil
 }
 
