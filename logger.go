@@ -178,6 +178,10 @@ func (l *FileLogger) Close() error {
 	if l.stopCleanup != nil {
 		close(l.stopCleanup)
 	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
 	if l.CurrentLogFile != nil {
 		return l.CurrentLogFile.Close()
 	}
