@@ -22,16 +22,18 @@ import "github.com/agusespa/flogg"
 
 ### Creating a new logger instance
 
-To create a new logger, use the `NewLogger` function. It takes two arguments:
+To create a new logger, use the `NewLogger` function. It takes three arguments:
 
 - `devMode`: A boolean that, when `true`, enables more verbose logging for debugging purposes.
 - `appDir`: A string representing the directory where log files will be stored. This is relative to the user's home directory. For example, an `appDir` of `"MyApp"` will store logs in `~_user_/MyApp/logs`.
+- `maxLogAgeDays`: Maximum age of log files in days before automatic cleanup (0 = no cleanup).
 
 ```go
-logger, err := flog.NewLogger(true, "MyApp")
+logger, err := flog.NewLogger(true, "MyApp", 30)
 if err != nil {
     log.Fatalf("Failed to create logger: %v", err)
 }
+defer logger.Close()
 ```
 
 ### Logging Messages
