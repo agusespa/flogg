@@ -101,7 +101,3 @@ logger.LogErrorWith(errors.New("database connection failed"), map[string]interfa
     "retry_count": 3,
 })
 ```
-
-## License
-
-[MIT](https://choosealicense.com/licenses/mit/)
